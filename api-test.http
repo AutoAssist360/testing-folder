@@ -1,0 +1,46 @@
+### List all users
+GET http://localhost:3000/users HTTP/1.1
+
+### List all posts
+GET http://localhost:3000/posts HTTP/1.1
+
+### Get published posts feed
+GET http://localhost:3000/feed HTTP/1.1
+
+### Get post by ID
+GET http://localhost:3000/posts/1 HTTP/1.1
+
+### Create another user
+POST http://localhost:3000/users HTTP/1.1
+Content-Type: application/json
+
+{
+  "email": "bob@example.com",
+  "name": "Bob Smith"
+}
+
+### Create a new post
+POST http://localhost:3000/posts HTTP/1.1
+Content-Type: application/json
+
+{
+  "title": "Getting Started with Prisma",
+  "content": "Prisma is a modern ORM that makes database access easy...",
+  "authorEmail": "alice@prisma.io"
+}
+
+### Create another post
+POST http://localhost:3000/posts HTTP/1.1
+Content-Type: application/json
+
+{
+  "title": "Building REST APIs with Express",
+  "content": "Express is a minimal and flexible Node.js web framework...",
+  "authorEmail": "bob@example.com"
+}
+
+### Publish a post
+PUT http://localhost:3000/posts/publish/2 HTTP/1.1
+
+### Delete a post
+DELETE http://localhost:3000/posts/2 HTTP/1.1
