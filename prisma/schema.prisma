@@ -13,9 +13,318 @@ datasource db {
   provider = "postgresql"
 }
 
-model User {
-  id    Int     @id @default(autoincrement())
-  name String  @unique
- password String
+enum Role {
+ user
+ technician
+ admin
 }
-
+enum FuelType {
+ petrol
+ diesel
+ electric
+ hybrid
+}
+enum Transmission {
+ manual
+ automatic
+}
+enum IssueType {
+ engine
+ tyre
+ brake
+ electrical
+ accident
+ general
+}
+enum ServiceLocationType {
+ roadside
+ home
+ office
+}
+enum RequestStatus {
+ created
+ technician_notified
+ in_progress
+ completed
+ cancelled
+}
+enum MediaType {
+ image
+ video
+}
+enum TechnicianType {
+ individual
+ garage
+}
+enum OfferStatus {
+ pending
+ accepted
+ rejected
+}
+enum RepairMode {
+ on_road
+ towed_to_garage
+}
+enum JobStatus {
+ en_route
+ repairing
+ waiting_for_parts
+ completed
+}
+enum PaymentStatus {
+ pending
+ paid
+ failed
+}
+enum InvoiceItemType {
+ part
+ labor
+ towing
+ fee
+}
+model User {
+ user_id String @id @default(uuid()) @db.Uuid
+ full_name String
+ email String @unique
+ phone_number String @unique
+ password_hash String
+ role Role
+ is_active Boolean @default(true)
+ created_at DateTime @default(now())
+ vehicles UserVehicle[]
+ serviceRequests ServiceRequest[]
+ sentMessages PlatformMessage[] @relation("sentMessages")
+ receivedMessages PlatformMessage[] @relation("receivedMessages")
+ reviews Review[]
+ technicianProfile TechnicianProfile?
+ @@map("users")
+}
+model CarCompany {
+ company_id Int @id @default(autoincrement())
+ company_name String @unique
+ models CarModel[]
+ technicianSupports TechnicianCarSupport[]
+ @@map("car_companies")
+}
+model CarModel {
+ model_id Int @id @default(autoincrement())
+ company_id Int
+ model_name String
+ company CarCompany @relation(fields: [company_id], references: [company_id])
+ variants CarVariant[]
+ @@map("car_models")
+}
+model CarVariant {
+ variant_id Int @id @default(autoincrement())
+ model_id Int
+ year Int
+ engine_type String
+ fuel_type FuelType
+ transmission Transmission
+ model CarModel @relation(fields: [model_id], references: [model_id])
+ partPrices PartPrice[]
+ userVehicles UserVehicle[]
+ @@map("car_variants")
+}
+model CarPartCategory {
+ category_id Int @id @default(autoincrement())
+ category_name String
+ parts CarPart[]
+ technicianSkills TechnicianPartSkill[]
+ @@map("car_part_categories")
+}
+model CarPart {
+ part_id Int @id @default(autoincrement())
+ category_id Int
+ part_name String
+ description String?
+ category CarPartCategory @relation(fields: [category_id], references: [category_id])
+ prices PartPrice[]
+ requestParts ServiceRequestPart[]
+ @@map("car_parts")
+}
+model PartPrice {
+ price_id Int @id @default(autoincrement())
+ part_id Int
+ variant_id Int
+ price Decimal @db.Decimal(10, 2)
+ warranty_months Int?
+ part CarPart @relation(fields: [part_id], references: [part_id])
+ variant CarVariant @relation(fields: [variant_id], references: [variant_id])
+ @@map("part_prices")
+}
+model UserVehicle {
+ vehicle_id String @id @default(uuid()) @db.Uuid
+ user_id String @db.Uuid
+ variant_id Int
+ registration_number String @unique
+ vin_number String @unique
+ user User @relation(fields: [user_id], references: [user_id])
+ variant CarVariant @relation(fields: [variant_id], references: [variant_id])
+ serviceRequests ServiceRequest[]
+ @@map("user_vehicles")
+}
+model ServiceRequest {
+ request_id String @id @default(uuid()) @db.Uuid
+ user_id String @db.Uuid
+ vehicle_id String @db.Uuid
+ issue_description String
+ issue_type IssueType
+ breakdown_latitude Float?
+ breakdown_longitude Float?
+ service_location_type ServiceLocationType
+ requires_towing Boolean @default(false)
+ status RequestStatus @default(created)
+ created_at DateTime @default(now())
+ user User @relation(fields: [user_id], references: [user_id])
+ vehicle UserVehicle @relation(fields: [vehicle_id], references: [vehicle_id])
+ parts ServiceRequestPart[]
+ media ServiceRequestMedia[]
+ offers TechnicianOffer[]
+ job Job?
+ messages PlatformMessage[]
+ @@map("service_requests")
+}
+model ServiceRequestPart {
+ id Int @id @default(autoincrement())
+ request_id String @db.Uuid
+ part_id Int
+ problem_description String?
+ request ServiceRequest @relation(fields: [request_id], references: [request_id])
+ part CarPart @relation(fields: [part_id], references: [part_id])
+ @@map("service_request_parts")
+}
+model ServiceRequestMedia {
+ media_id Int @id @default(autoincrement())
+ request_id String @db.Uuid
+ media_type MediaType
+ media_url String
+ request ServiceRequest @relation(fields: [request_id], references: [request_id])
+ @@map("service_request_media")
+}
+model TechnicianProfile {
+ tech_id String @id @db.Uuid
+ technician_type TechnicianType
+ business_name String?
+ is_available Boolean @default(false)
+ current_lat Float?
+ current_long Float?
+ service_radius_km Int?
+ rating_average Decimal? @db.Decimal(3, 2)
+ user User @relation(fields: [tech_id], references: [user_id])
+ carSupport TechnicianCarSupport[]
+ partSkills TechnicianPartSkill[]
+ certifications TechnicianCertification[]
+ resources TechnicianResource?
+ offers TechnicianOffer[]
+ jobs Job[]
+ reviews Review[]
+ @@map("technician_profiles")
+}
+model TechnicianCarSupport {
+ id Int @id @default(autoincrement())
+ tech_id String @db.Uuid
+ company_id Int
+ experience_years Int?
+ technician TechnicianProfile @relation(fields: [tech_id], references: [tech_id])
+ company CarCompany @relation(fields: [company_id], references:[company_id])
+ @@map("technician_car_support")
+}
+model TechnicianPartSkill {
+ id Int @id @default(autoincrement())
+ tech_id String @db.Uuid
+ category_id Int
+ technician TechnicianProfile @relation(fields: [tech_id], references: [tech_id])
+ category CarPartCategory @relation(fields: [category_id], references:[category_id])
+ @@map("technician_part_skills")
+}
+model TechnicianCertification {
+ cert_id Int @id @default(autoincrement())
+ tech_id String @db.Uuid
+ certificate_name String
+ issued_by String?
+ valid_till DateTime?
+ technician TechnicianProfile @relation(fields: [tech_id], references: [tech_id])
+ @@map("technician_certifications")
+}
+model TechnicianResource {
+ resource_id Int @id @default(autoincrement())
+ tech_id String @unique @db.Uuid
+ has_service_van Boolean @default(false)
+ has_tow_truck Boolean @default(false)
+ has_garage Boolean @default(false)
+ technician TechnicianProfile @relation(fields: [tech_id], references: [tech_id])
+ @@map("technician_resources")
+}
+model TechnicianOffer {
+ offer_id Int @id @default(autoincrement())
+ request_id String @db.Uuid
+ tech_id String @db.Uuid
+ estimated_cost Decimal? @db.Decimal(10, 2)
+ estimated_time_minutes Int?
+ offer_status OfferStatus @default(pending)
+ request ServiceRequest @relation(fields: [request_id], references:[request_id])
+ technician TechnicianProfile @relation(fields: [tech_id], references: [tech_id])
+ @@map("technician_offers")
+}
+model Job {
+ job_id String @id @default(uuid()) @db.Uuid
+ request_id String @unique @db.Uuid
+ tech_id String @db.Uuid
+ repair_mode RepairMode
+ job_status JobStatus
+ start_time DateTime?
+ end_time DateTime?
+ request ServiceRequest @relation(fields: [request_id], references: [request_id])
+ technician TechnicianProfile @relation(fields: [tech_id], references: [tech_id])
+ invoice Invoice?
+ reviews Review[]
+ @@map("jobs")
+}
+model PlatformMessage {
+ message_id Int @id @default(autoincrement())
+ sender_id String @db.Uuid
+ receiver_id String @db.Uuid
+ request_id String? @db.Uuid
+ message_text String
+ sent_at DateTime @default(now())
+ sender User @relation("sentMessages", fields: [sender_id], references: [user_id])
+ receiver User @relation("receivedMessages", fields: [receiver_id], references:[user_id])
+ request ServiceRequest? @relation(fields: [request_id], references: [request_id])
+ @@map("platform_messages")
+}
+model Invoice {
+ invoice_id String @id @default(uuid()) @db.Uuid
+ job_id String @unique @db.Uuid
+ labor_cost Decimal @db.Decimal(10, 2)
+ parts_cost Decimal @db.Decimal(10, 2)
+ towing_cost Decimal @db.Decimal(10, 2)
+ platform_fee Decimal @db.Decimal(10, 2)
+ total_amount Decimal @db.Decimal(12, 2)
+ payment_status PaymentStatus
+ job Job @relation(fields: [job_id], references: [job_id])
+ items InvoiceItem[]
+ @@map("invoices")
+}
+model InvoiceItem {
+ item_id Int @id @default(autoincrement())
+ invoice_id String @db.Uuid
+ item_type InvoiceItemType
+ description String?
+ amount Decimal @db.Decimal(10, 2)
+ invoice Invoice @relation(fields: [invoice_id], references: [invoice_id])
+ @@map("invoice_items")
+}
+model Review {
+ review_id Int @id @default(autoincrement())
+ job_id String @db.Uuid
+ user_id String @db.Uuid
+ tech_id String @db.Uuid
+ rating Int
+ review_text String?
+ created_at DateTime @default(now())
+ job Job @relation(fields: [job_id], references: [job_id])
+ user User @relation(fields: [user_id], references: [user_id])
+ technician TechnicianProfile @relation(fields: [tech_id], references: [tech_id])
+ @@map("reviews")
+}
