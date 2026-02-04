@@ -26,7 +26,7 @@ userRouter.post("/signup", async (req, res) => {
   const newUser = await prisma.user.create({
     data:{
       email,
-      password_hash: hashpassword,
+      password: hashpassword,
       full_name: "",
       phone_number: "",
       role: "user"
@@ -55,7 +55,7 @@ userRouter.post("/signin", async (req, res) => {
     });
     return;
   }
-  const hashpassword = await bcrypt.compare(password, user.password_hash);
+  const hashpassword = await bcrypt.compare(password, user.password);
   if(!hashpassword){
     res.json({
       message:"incorrect password"
