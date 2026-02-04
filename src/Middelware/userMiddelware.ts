@@ -41,6 +41,12 @@ export const userAuth = (
     }
 
     // ✅ 4. Verify token
+    if (!USER_SECRET) {
+      return res.status(500).json({
+        message: "Server configuration error"
+      });
+    }
+
     const decoded = jwt.verify(token, USER_SECRET) as TokenPayload;
 
     if (!decoded.userId) {
@@ -50,7 +56,7 @@ export const userAuth = (
     }
 
     // ✅ 5. Attach user globally
-    req.userId: decoded.userId
+    req.userId = decoded.userId;
 
     next();
   } catch (error: any) {

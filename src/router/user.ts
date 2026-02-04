@@ -23,14 +23,17 @@ userRouter.post("/signup", async (req, res) => {
   }
   // in future turn it to 10
   const hashpassword=await bcrypt.hash(password,3);
-       await prisma.user.create({
-       data:{
-        email,
-        password:hashpassword
-       }
+  const newUser = await prisma.user.create({
+    data:{
+      email,
+      password_hash: hashpassword,
+      full_name: "",
+      phone_number: "",
+      role: "user"
+    }
   });
   const token = jwt.sign(
-    { userId: user.user_id },
+    { userId: newUser.user_id },
     USER_SECRET as string
   );
   res.cookie("authcookie", token, {
@@ -52,7 +55,7 @@ userRouter.post("/signin", async (req, res) => {
     });
     return;
   }
-  const hashpassword=bcrypt.compare(password,user.password)
+  const hashpassword = await bcrypt.compare(password, user.password_hash);
   if(!hashpassword){
     res.json({
       message:"incorrect password"
@@ -77,18 +80,22 @@ userRouter.post("/signout",(req,res)=>{
 
 userRouter.post("/me",userAuth,async(req,res)=>{
   const {full_name,phone_number}=req.body;
-  const userId=req.body.userId;
- await prisma.user.update({
-  where:{user_id:userId},
-  data:{
-    full_name,
-    phone_number
-  }
- })
+  const userId = req.userId;
+  const updatedUser = await prisma.user.update({
+    where:{user_id:userId},
+    data:{
+      full_name,
+      phone_number
+    }
+  });
+  res.json({
+    message: "Profile updated successfully",
+    user: updatedUser
+  });
 })
 
 userRouter.get("/me",userAuth,async(req,res)=>{
-  const userId=req.body.userId;
+  const userId = req.userId;
   const user=await prisma.user.findUnique({
     where:{user_id:userId}
   });
@@ -99,8 +106,8 @@ userRouter.get("/me",userAuth,async(req,res)=>{
 
 userRouter.post("/vehicledetail",userAuth,async(req,res)=>{
   const {variant_id ,registration_number,vin_number }=req.body;
-    const userId=req.body.userId;
-    const vehicle_detail=await prisma.userVehicle.create({
+  const userId = req.userId;
+  const vehicle_detail=await prisma.userVehicle.create({
       data:{
         user_id:userId,
         variant_id,
@@ -113,25 +120,43 @@ userRouter.post("/vehicledetail",userAuth,async(req,res)=>{
     })
 })
 userRouter.post("/issue",userAuth,async(req,res)=>{
-     const userId=req.body.userId;
-     const {issue_description ,issue_type,breakdown_latitude,breakdown_longitude }=req.body
-      const vehicle_id=await prisma.userVehicle.findFirst({
-        where:{user_id:userId},
-        select:{vehicle_id:true}
-})
-       const issue=await prisma.userIssue.create({
-        data:{
-          user_id:userId,
-          vehicle_id:vehicle_id?.vehicle_id as number,
-          issue_description,
-          issue_type, 
-          breakdown_latitude,
-          breakdown_longitude
-        }
-       })
-       res.json({
-        issue
-       })   
+  const userId = req.userId;
+  const {
+    issue_description,
+    issue_type,
+    breakdown_latitude,
+    breakdown_longitude,
+    service_location_type = "roadside",
+    requires_towing = false
+  } = req.body;
+  
+  const vehicle = await prisma.userVehicle.findFirst({
+    where:{user_id:userId},
+    select:{vehicle_id:true}
+  });
+
+  if (!vehicle) {
+    return res.status(404).json({
+      message: "No vehicle found for this user"
+    });
+  }
+
+  const serviceRequest = await prisma.serviceRequest.create({
+    data:{
+      user_id: userId,
+      vehicle_id: vehicle.vehicle_id,
+      issue_description,
+      issue_type, 
+      breakdown_latitude,
+      breakdown_longitude,
+      service_location_type,
+      requires_towing
+    }
+  });
+  
+  res.json({
+    serviceRequest
+  });   
 });
 
 export default userRouter;
