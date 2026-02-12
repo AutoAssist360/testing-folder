@@ -112,6 +112,8 @@ model User {
   receivedMessages  PlatformMessage[]  @relation("receivedMessages")
   reviews           Review[]
   technicianProfile TechnicianProfile?
+  auditLogs         AuditLog[]
+  deleted_at        DateTime?
 
   @@map("users")
 }
@@ -136,13 +138,13 @@ model CarModel {
 }
 
 model CarVariant {
-  variant_id           Int               @id @default(autoincrement())
+  variant_id           Int                    @id @default(autoincrement())
   model_id             Int
   variant_name         String
   year                 Int
   fuel_type            FuelType
   transmission         Transmission
-  model                CarModel          @relation(fields: [model_id], references: [model_id])
+  model                CarModel               @relation(fields: [model_id], references: [model_id])
   userVehicles         UserVehicle[]
   technicianCarSupport TechnicianCarSupport[]
 
@@ -158,10 +160,10 @@ model CarPartCategory {
 }
 
 model CarPart {
-  part_id              Int                    @id @default(autoincrement())
+  part_id              Int                   @id @default(autoincrement())
   part_name            String
   category_id          Int
-  category             CarPartCategory        @relation(fields: [category_id], references: [category_id])
+  category             CarPartCategory       @relation(fields: [category_id], references: [category_id])
   prices               PartPrice[]
   serviceRequestParts  ServiceRequestPart[]
   technicianPartSkills TechnicianPartSkill[]
@@ -204,6 +206,7 @@ model ServiceRequest {
   requires_towing       Boolean               @default(false)
   status                RequestStatus         @default(created)
   created_at            DateTime              @default(now())
+  deleted_at            DateTime?
   user                  User                  @relation(fields: [user_id], references: [user_id])
   vehicle               UserVehicle           @relation(fields: [vehicle_id], references: [vehicle_id])
   parts                 ServiceRequestPart[]
@@ -212,6 +215,8 @@ model ServiceRequest {
   job                   Job?
   messages              PlatformMessage[]
 
+  @@index([status])
+  @@index([breakdown_latitude, breakdown_longitude])
   @@map("service_requests")
 }
 
@@ -237,25 +242,27 @@ model ServiceRequestMedia {
 }
 
 model TechnicianProfile {
-  technician_id    String                    @id @default(uuid()) @db.Uuid
-  user_id          String                    @unique @db.Uuid
-  business_name    String?
-  technician_type  TechnicianType
-  location         String
-  latitude         Float
-  longitude        Float
-  service_radius   Int
-  rating           Decimal?                  @db.Decimal(3, 2)
-  total_reviews    Int                       @default(0)
-  is_verified      Boolean                   @default(false)
-  user             User                      @relation(fields: [user_id], references: [user_id])
-  carSupports      TechnicianCarSupport[]
-  partSkills       TechnicianPartSkill[]
-  certifications   TechnicianCertification[]
-  resources        TechnicianResource[]
-  offers           TechnicianOffer[]
-  jobs             Job[]
+  technician_id   String                    @id @default(uuid()) @db.Uuid
+  user_id         String                    @unique @db.Uuid
+  business_name   String?
+  technician_type TechnicianType
+  location        String
+  latitude        Float
+  longitude       Float
+  service_radius  Int
+  rating          Decimal?                  @db.Decimal(3, 2)
+  total_reviews   Int                       @default(0)
+  is_verified     Boolean                   @default(false)
+  is_online       Boolean                   @default(false)
+  user            User                      @relation(fields: [user_id], references: [user_id])
+  carSupports     TechnicianCarSupport[]
+  partSkills      TechnicianPartSkill[]
+  certifications  TechnicianCertification[]
+  resources       TechnicianResource[]
+  offers          TechnicianOffer[]
+  jobs            Job[]
 
+  @@index([latitude, longitude])
   @@map("technician_profiles")
 }
 
@@ -321,18 +328,20 @@ model TechnicianOffer {
 }
 
 model Job {
-  job_id         String            @id @default(uuid()) @db.Uuid
-  request_id     String            @unique @db.Uuid
-  technician_id  String            @db.Uuid
-  offer_id       String            @unique @db.Uuid
-  status         JobStatus
-  started_at     DateTime?
-  completed_at   DateTime?
-  request        ServiceRequest    @relation(fields: [request_id], references: [request_id])
-  technician     TechnicianProfile @relation(fields: [technician_id], references: [technician_id])
-  offer          TechnicianOffer   @relation(fields: [offer_id], references: [offer_id])
-  invoice        Invoice?
+  job_id        String            @id @default(uuid()) @db.Uuid
+  request_id    String            @unique @db.Uuid
+  technician_id String            @db.Uuid
+  offer_id      String            @unique @db.Uuid
+  status        JobStatus
+  started_at    DateTime?
+  completed_at  DateTime?
+  deleted_at    DateTime?
+  request       ServiceRequest    @relation(fields: [request_id], references: [request_id])
+  technician    TechnicianProfile @relation(fields: [technician_id], references: [technician_id])
+  offer         TechnicianOffer   @relation(fields: [offer_id], references: [offer_id])
+  invoice       Invoice?
 
+  @@index([status])
   @@map("jobs")
 }
 
@@ -352,16 +361,20 @@ model PlatformMessage {
 }
 
 model Invoice {
-  invoice_id     String          @id @default(uuid()) @db.Uuid
-  job_id         String          @unique @db.Uuid
-  subtotal       Decimal         @db.Decimal(10, 2)
-  tax            Decimal         @db.Decimal(10, 2)
-  total          Decimal         @db.Decimal(10, 2)
-  payment_status PaymentStatus
-  issued_at      DateTime        @default(now())
-  paid_at        DateTime?
-  job            Job             @relation(fields: [job_id], references: [job_id])
-  items          InvoiceItem[]
+  invoice_id       String        @id @default(uuid()) @db.Uuid
+  job_id           String        @unique @db.Uuid
+  subtotal         Decimal       @db.Decimal(10, 2)
+  tax              Decimal       @db.Decimal(10, 2)
+  total            Decimal       @db.Decimal(10, 2)
+  payment_status   PaymentStatus
+  transaction_id   String?       @unique
+  payment_method   String?
+  gateway_response Json?
+  issued_at        DateTime      @default(now())
+  paid_at          DateTime?
+  deleted_at       DateTime?
+  job              Job           @relation(fields: [job_id], references: [job_id])
+  items            InvoiceItem[]
 
   @@map("invoices")
 }
@@ -388,4 +401,18 @@ model Review {
   user       User     @relation(fields: [user_id], references: [user_id])
 
   @@map("reviews")
+}
+
+model AuditLog {
+  log_id       String   @id @default(uuid()) @db.Uuid
+  entity_type  String
+  entity_id    String
+  action       String
+  old_value    Json?
+  new_value    Json?
+  performed_by String   @db.Uuid
+  created_at   DateTime @default(now())
+  user         User     @relation(fields: [performed_by], references: [user_id])
+
+  @@map("audit_logs")
 }
