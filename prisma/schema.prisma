@@ -7,10 +7,15 @@ datasource db {
   provider = "postgresql"
 }
 
+// ═══════════════════════════════════════════════════════════════
+//  ENUMS
+// ═══════════════════════════════════════════════════════════════
+
 enum Role {
   admin
   user
   technician
+  vendor
 }
 
 enum FuelType {
@@ -97,23 +102,56 @@ enum InvoiceItemType {
   other
 }
 
+enum OrderStatus {
+  pending
+  confirmed
+  processing
+  shipped
+  delivered
+  cancelled
+  returned
+}
+
+enum ReservationStatus {
+  active
+  expired
+  converted
+  cancelled
+}
+
+enum FulfillmentStatus {
+  pending
+  processing
+  shipped
+  in_transit
+  delivered
+  failed
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  EXISTING MODELS
+// ═══════════════════════════════════════════════════════════════
+
 model User {
-  user_id           String             @id @default(uuid()) @db.Uuid
+  user_id           String                 @id @default(uuid()) @db.Uuid
   full_name         String
-  email             String             @unique
-  phone_number      String             @unique
+  email             String                 @unique
+  phone_number      String                 @unique
   password          String
   role              Role
-  is_active         Boolean            @default(true)
-  created_at        DateTime           @default(now())
+  is_active         Boolean                @default(true)
+  created_at        DateTime               @default(now())
   vehicles          UserVehicle[]
   serviceRequests   ServiceRequest[]
-  sentMessages      PlatformMessage[]  @relation("sentMessages")
-  receivedMessages  PlatformMessage[]  @relation("receivedMessages")
+  sentMessages      PlatformMessage[]      @relation("sentMessages")
+  receivedMessages  PlatformMessage[]      @relation("receivedMessages")
   reviews           Review[]
   technicianProfile TechnicianProfile?
   auditLogs         AuditLog[]
   deleted_at        DateTime?
+  // ── Vendor / Warehouse relations ──
+  warehouses        Warehouse[]
+  orders            Order[]
 
   @@map("users")
 }
@@ -134,6 +172,8 @@ model CarModel {
   company    CarCompany   @relation(fields: [company_id], references: [company_id])
   variants   CarVariant[]
 
+  @@unique([company_id, model_name])
+  @@index([company_id])
   @@map("car_models")
 }
 
@@ -147,7 +187,10 @@ model CarVariant {
   model                CarModel               @relation(fields: [model_id], references: [model_id])
   userVehicles         UserVehicle[]
   technicianCarSupport TechnicianCarSupport[]
+  partPrices           PartPrice[]
 
+  @@unique([model_id, variant_name, year])
+  @@index([model_id])
   @@map("car_variants")
 }
 
@@ -167,17 +210,25 @@ model CarPart {
   prices               PartPrice[]
   serviceRequestParts  ServiceRequestPart[]
   technicianPartSkills TechnicianPartSkill[]
+  // ── Vendor / Warehouse relations ──
+  inventories          Inventory[]
+  orderItems           OrderItem[]
 
+  @@index([category_id])
   @@map("car_parts")
 }
 
 model PartPrice {
-  price_id   Int     @id @default(autoincrement())
+  price_id   Int        @id @default(autoincrement())
   part_id    Int
   variant_id Int
-  price      Decimal @db.Decimal(10, 2)
-  part       CarPart @relation(fields: [part_id], references: [part_id])
+  price      Decimal    @db.Decimal(10, 2)
+  part       CarPart    @relation(fields: [part_id], references: [part_id], onDelete: Restrict)
+  variant    CarVariant @relation(fields: [variant_id], references: [variant_id], onDelete: Restrict)
 
+  @@unique([part_id, variant_id])
+  @@index([part_id])
+  @@index([variant_id])
   @@map("part_prices")
 }
 
@@ -187,34 +238,40 @@ model UserVehicle {
   variant_id          Int
   registration_number String           @unique
   vin_number          String           @unique
-  user                User             @relation(fields: [user_id], references: [user_id])
+  user                User             @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
   variant             CarVariant       @relation(fields: [variant_id], references: [variant_id])
   serviceRequests     ServiceRequest[]
 
+  @@index([user_id])
   @@map("user_vehicles")
 }
 
 model ServiceRequest {
-  request_id            String                @id @default(uuid()) @db.Uuid
-  user_id               String                @db.Uuid
-  vehicle_id            String                @db.Uuid
+  request_id            String                 @id @default(uuid()) @db.Uuid
+  user_id               String                 @db.Uuid
+  vehicle_id            String                 @db.Uuid
   issue_description     String
   issue_type            IssueType
   breakdown_latitude    Float?
   breakdown_longitude   Float?
   service_location_type ServiceLocationType
-  requires_towing       Boolean               @default(false)
-  status                RequestStatus         @default(created)
-  created_at            DateTime              @default(now())
+  requires_towing       Boolean                @default(false)
+  status                RequestStatus          @default(created)
+  created_at            DateTime               @default(now())
+  updated_at             DateTime               @default(now()) @updatedAt
   deleted_at            DateTime?
-  user                  User                  @relation(fields: [user_id], references: [user_id])
-  vehicle               UserVehicle           @relation(fields: [vehicle_id], references: [vehicle_id])
+  user                  User                   @relation(fields: [user_id], references: [user_id])
+  vehicle               UserVehicle            @relation(fields: [vehicle_id], references: [vehicle_id])
   parts                 ServiceRequestPart[]
   media                 ServiceRequestMedia[]
   offers                TechnicianOffer[]
   job                   Job?
   messages              PlatformMessage[]
+  // ── Vendor / Warehouse relations ──
+  orders                Order[]
+  inventoryReservations InventoryReservation[]
 
+  @@index([user_id])
   @@index([status])
   @@index([breakdown_latitude, breakdown_longitude])
   @@map("service_requests")
@@ -225,9 +282,12 @@ model ServiceRequestPart {
   request_id      String         @db.Uuid
   part_id         Int
   quantity        Int
-  request         ServiceRequest @relation(fields: [request_id], references: [request_id])
+  request         ServiceRequest @relation(fields: [request_id], references: [request_id], onDelete: Cascade)
   part            CarPart        @relation(fields: [part_id], references: [part_id])
 
+  @@unique([request_id, part_id])
+  @@index([request_id])
+  @@index([part_id])
   @@map("service_request_parts")
 }
 
@@ -236,8 +296,9 @@ model ServiceRequestMedia {
   request_id String         @db.Uuid
   media_url  String
   media_type MediaType
-  request    ServiceRequest @relation(fields: [request_id], references: [request_id])
+  request    ServiceRequest @relation(fields: [request_id], references: [request_id], onDelete: Cascade)
 
+  @@index([request_id])
   @@map("service_request_media")
 }
 
@@ -254,6 +315,7 @@ model TechnicianProfile {
   total_reviews   Int                       @default(0)
   is_verified     Boolean                   @default(false)
   is_online       Boolean                   @default(false)
+  updated_at      DateTime                  @default(now()) @updatedAt
   user            User                      @relation(fields: [user_id], references: [user_id])
   carSupports     TechnicianCarSupport[]
   partSkills      TechnicianPartSkill[]
@@ -261,6 +323,7 @@ model TechnicianProfile {
   resources       TechnicianResource[]
   offers          TechnicianOffer[]
   jobs            Job[]
+  reviews         Review[]
 
   @@index([latitude, longitude])
   @@map("technician_profiles")
@@ -271,10 +334,11 @@ model TechnicianCarSupport {
   technician_id String            @db.Uuid
   company_id    Int
   variant_id    Int?
-  technician    TechnicianProfile @relation(fields: [technician_id], references: [technician_id])
+  technician    TechnicianProfile @relation(fields: [technician_id], references: [technician_id], onDelete: Cascade)
   company       CarCompany        @relation(fields: [company_id], references: [company_id])
   variant       CarVariant?       @relation(fields: [variant_id], references: [variant_id])
 
+  @@unique([technician_id, company_id, variant_id])
   @@map("technician_car_supports")
 }
 
@@ -282,9 +346,10 @@ model TechnicianPartSkill {
   skill_id      String            @id @default(uuid()) @db.Uuid
   technician_id String            @db.Uuid
   part_id       Int
-  technician    TechnicianProfile @relation(fields: [technician_id], references: [technician_id])
+  technician    TechnicianProfile @relation(fields: [technician_id], references: [technician_id], onDelete: Cascade)
   part          CarPart           @relation(fields: [part_id], references: [part_id])
 
+  @@unique([technician_id, part_id])
   @@map("technician_part_skills")
 }
 
@@ -295,8 +360,9 @@ model TechnicianCertification {
   issued_by        String
   issue_date       DateTime
   expiry_date      DateTime?
-  technician       TechnicianProfile @relation(fields: [technician_id], references: [technician_id])
+  technician       TechnicianProfile @relation(fields: [technician_id], references: [technician_id], onDelete: Cascade)
 
+  @@index([technician_id])
   @@map("technician_certifications")
 }
 
@@ -305,8 +371,9 @@ model TechnicianResource {
   technician_id String            @db.Uuid
   resource_type String
   description   String
-  technician    TechnicianProfile @relation(fields: [technician_id], references: [technician_id])
+  technician    TechnicianProfile @relation(fields: [technician_id], references: [technician_id], onDelete: Cascade)
 
+  @@index([technician_id])
   @@map("technician_resources")
 }
 
@@ -320,10 +387,14 @@ model TechnicianOffer {
   message        String?
   status         OfferStatus       @default(pending)
   created_at     DateTime          @default(now())
+  updated_at     DateTime          @default(now()) @updatedAt
   request        ServiceRequest    @relation(fields: [request_id], references: [request_id])
   technician     TechnicianProfile @relation(fields: [technician_id], references: [technician_id])
   job            Job?
 
+  @@unique([request_id, technician_id])
+  @@index([request_id])
+  @@index([technician_id])
   @@map("technician_offers")
 }
 
@@ -340,7 +411,9 @@ model Job {
   technician    TechnicianProfile @relation(fields: [technician_id], references: [technician_id])
   offer         TechnicianOffer   @relation(fields: [offer_id], references: [offer_id])
   invoice       Invoice?
+  review        Review?
 
+  @@index([technician_id])
   @@index([status])
   @@map("jobs")
 }
@@ -357,6 +430,10 @@ model PlatformMessage {
   sender      User           @relation("sentMessages", fields: [sender_id], references: [user_id])
   receiver    User           @relation("receivedMessages", fields: [receiver_id], references: [user_id])
 
+  @@index([request_id])
+  @@index([sender_id])
+  @@index([receiver_id])
+  @@index([request_id, receiver_id, is_read])
   @@map("platform_messages")
 }
 
@@ -376,6 +453,8 @@ model Invoice {
   job              Job           @relation(fields: [job_id], references: [job_id])
   items            InvoiceItem[]
 
+  @@index([payment_status])
+  @@index([issued_at])
   @@map("invoices")
 }
 
@@ -387,19 +466,26 @@ model InvoiceItem {
   quantity    Int
   unit_price  Decimal         @db.Decimal(10, 2)
   total_price Decimal         @db.Decimal(10, 2)
-  invoice     Invoice         @relation(fields: [invoice_id], references: [invoice_id])
+  invoice     Invoice         @relation(fields: [invoice_id], references: [invoice_id], onDelete: Cascade)
 
+  @@index([invoice_id])
   @@map("invoice_items")
 }
 
 model Review {
-  review_id  String   @id @default(uuid()) @db.Uuid
-  user_id    String   @db.Uuid
-  rating     Int
-  comment    String?
-  created_at DateTime @default(now())
-  user       User     @relation(fields: [user_id], references: [user_id])
+  review_id     String             @id @default(uuid()) @db.Uuid
+  user_id       String             @db.Uuid
+  job_id        String             @unique @db.Uuid
+  technician_id String             @db.Uuid
+  rating        Int
+  comment       String?
+  created_at    DateTime           @default(now())
+  user          User               @relation(fields: [user_id], references: [user_id])
+  job           Job                @relation(fields: [job_id], references: [job_id])
+  technician    TechnicianProfile  @relation(fields: [technician_id], references: [technician_id])
 
+  @@index([user_id])
+  @@index([technician_id])
   @@map("reviews")
 }
 
@@ -414,5 +500,150 @@ model AuditLog {
   created_at   DateTime @default(now())
   user         User     @relation(fields: [performed_by], references: [user_id])
 
+  @@index([performed_by])
+  @@index([entity_type, entity_id])
+  @@index([created_at])
   @@map("audit_logs")
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  NEW MODELS — Vendor / Warehouse System
+// ═══════════════════════════════════════════════════════════════
+
+/// Physical warehouse or store managed by a vendor (User with role = vendor).
+model Warehouse {
+  warehouse_id String      @id @default(uuid()) @db.Uuid
+  vendor_id    String      @db.Uuid
+  name         String
+  address      String
+  city         String
+  state        String
+  postal_code  String
+  latitude     Float
+  longitude    Float
+  phone        String?
+  is_active    Boolean     @default(true)
+  created_at   DateTime    @default(now())
+  updated_at   DateTime    @updatedAt
+  vendor       User        @relation(fields: [vendor_id], references: [user_id])
+  inventories  Inventory[]
+  orders       Order[]
+
+  @@index([vendor_id])
+  @@index([vendor_id, is_active])
+  @@index([latitude, longitude])
+  @@index([city, state])
+  @@map("warehouses")
+}
+
+/// Tracks the stock level of a specific part in a specific warehouse.
+/// The combination of warehouse + part is unique (one inventory row per part per warehouse).
+model Inventory {
+  inventory_id       String                @id @default(uuid()) @db.Uuid
+  warehouse_id       String                @db.Uuid
+  part_id            Int
+  quantity_available Int                    @default(0)
+  quantity_reserved  Int                    @default(0)
+  unit_cost          Decimal                @db.Decimal(10, 2)
+  reorder_level      Int                    @default(0)
+  updated_at         DateTime               @updatedAt
+  warehouse          Warehouse              @relation(fields: [warehouse_id], references: [warehouse_id])
+  part               CarPart                @relation(fields: [part_id], references: [part_id])
+  reservations       InventoryReservation[]
+
+  @@unique([warehouse_id, part_id])
+  @@index([warehouse_id])
+  @@index([part_id])
+  @@map("inventories")
+}
+
+/// Temporary hold on inventory with a TTL (expires_at).
+/// Reservations can be linked to orders and/or service requests.
+model InventoryReservation {
+  reservation_id String            @id @default(uuid()) @db.Uuid
+  inventory_id   String            @db.Uuid
+  order_id       String?           @db.Uuid
+  request_id     String?           @db.Uuid
+  quantity       Int
+  reserved_at    DateTime          @default(now())
+  expires_at     DateTime
+  status         ReservationStatus @default(active)
+  inventory      Inventory         @relation(fields: [inventory_id], references: [inventory_id])
+  order          Order?            @relation(fields: [order_id], references: [order_id])
+  request        ServiceRequest?   @relation(fields: [request_id], references: [request_id])
+
+  @@index([inventory_id])
+  @@index([order_id])
+  @@index([request_id])
+  @@index([expires_at])
+  @@index([status, expires_at])
+  @@map("inventory_reservations")
+}
+
+/// Purchase order for parts — separate from the service Invoice.
+model Order {
+  order_id       String                @id @default(uuid()) @db.Uuid
+  order_number   String                @unique
+  user_id        String                @db.Uuid
+  warehouse_id   String                @db.Uuid
+  request_id     String?               @db.Uuid
+  subtotal       Decimal               @db.Decimal(10, 2)
+  tax            Decimal               @db.Decimal(10, 2)
+  total          Decimal               @db.Decimal(10, 2)
+  payment_status PaymentStatus         @default(pending)
+  order_status   OrderStatus           @default(pending)
+  transaction_id String?               @unique
+  payment_method String?
+  notes          String?
+  created_at     DateTime              @default(now())
+  updated_at     DateTime              @updatedAt
+  user           User                  @relation(fields: [user_id], references: [user_id])
+  warehouse      Warehouse             @relation(fields: [warehouse_id], references: [warehouse_id])
+  request        ServiceRequest?       @relation(fields: [request_id], references: [request_id])
+  items          OrderItem[]
+  fulfillments   Fulfillment[]
+  reservations   InventoryReservation[]
+
+  @@index([user_id])
+  @@index([warehouse_id])
+  @@index([request_id])
+  @@index([order_status])
+  @@index([payment_status])
+  @@map("orders")
+}
+
+/// Line item within an Order.
+model OrderItem {
+  order_item_id String  @id @default(uuid()) @db.Uuid
+  order_id      String  @db.Uuid
+  part_id       Int
+  quantity      Int
+  unit_price    Decimal @db.Decimal(10, 2)
+  total_price   Decimal @db.Decimal(10, 2)
+  order         Order   @relation(fields: [order_id], references: [order_id], onDelete: Cascade)
+  part          CarPart @relation(fields: [part_id], references: [part_id])
+
+  @@index([order_id])
+  @@index([part_id])
+  @@map("order_items")
+}
+
+/// Tracks the shipment / delivery lifecycle of an order.
+model Fulfillment {
+  fulfillment_id  String            @id @default(uuid()) @db.Uuid
+  order_id        String            @db.Uuid
+  status          FulfillmentStatus @default(pending)
+  tracking_number String?
+  carrier         String?
+  shipped_at      DateTime?
+  estimated_delivery DateTime?
+  delivered_at    DateTime?
+  notes           String?
+  created_at      DateTime          @default(now())
+  updated_at      DateTime          @updatedAt
+  order           Order             @relation(fields: [order_id], references: [order_id], onDelete: Cascade)
+
+  @@index([order_id])
+  @@index([status])
+  @@map("fulfillments")
 }
